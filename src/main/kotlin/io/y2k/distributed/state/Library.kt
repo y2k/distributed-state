@@ -1,8 +1,8 @@
 package io.y2k.distributed.state
 
-import java.io.ByteArrayOutputStream
-import java.io.ObjectOutputStream
-import java.io.Serializable
+import java.io.*
+import kotlin.reflect.full.instanceParameter
+import kotlin.reflect.full.memberFunctions
 
 interface Socket {
     suspend fun write(data: ByteArray)
@@ -42,7 +42,11 @@ object Library {
 
         val changes =
             changedMethods
-                .map { Diff(it.name, serialize(it(newState))) }
+                .map {
+                    val p = it.name.replace("get", "")
+                    val x = p[0].toLowerCase() + p.substring(1)
+                    Diff(x, serialize(it(newState)))
+                }
 
         return serialize(changes)
     }
@@ -53,8 +57,28 @@ object Library {
         return r.toByteArray()
     }
 
-    private fun <T> updateState(oldState: T, bytes: ByteArray): T {
-        TODO()
+    private fun <T : Any> updateState(oldState: T, bytes: ByteArray): T {
+        val diffs = deserialize<List<Diff>>(bytes)
+
+        val copy = oldState::class.memberFunctions.first { it.name == "copy" }
+        val instanceParam = copy.instanceParameter!!
+
+        val args = diffs
+            .map { x ->
+                copy.parameters.first { it.name == x.method } to
+                    deserialize<Any>(x.content)
+            }
+            .plus(instanceParam to oldState)
+            .toMap()
+
+        @Suppress("UNCHECKED_CAST")
+        return copy.callBy(args) as T
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun <T> deserialize(bytes: ByteArray): T {
+        val s = ByteArrayInputStream(bytes)
+        return s.use { ObjectInputStream(it).readObject() as T }
     }
 
     class Diff(val method: String, val content: ByteArray) : Serializable
