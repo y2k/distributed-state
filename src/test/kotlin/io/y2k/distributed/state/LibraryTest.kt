@@ -3,7 +3,7 @@
 package io.y2k.distributed.state
 
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.test.runBlockingTest
+import kotlinx.coroutines.runBlocking
 import java.io.Serializable
 import java.util.concurrent.ThreadLocalRandom
 import kotlin.test.Test
@@ -12,34 +12,48 @@ import kotlin.test.assertEquals
 class LibraryTest {
 
     private val random = ThreadLocalRandom.current()
-    private val socket = object : Socket {
-        private val buffer = Channel<ByteArray>(1)
-        override suspend fun write(data: ByteArray) = buffer.send(data)
-        override suspend fun read(): ByteArray = buffer.receive()
+    private val socket = object {
+        private val fromClient = Channel<ByteArray>(Channel.UNLIMITED)
+        private val fromServer = Channel<ByteArray>(Channel.UNLIMITED)
+
+        fun mkServer(): Socket = object : Socket {
+            override suspend fun write(data: ByteArray) = fromServer.send(data)
+            override suspend fun read(): ByteArray = fromClient.receive()
+        }
+
+        fun mkClient(): Socket = object : Socket {
+            override suspend fun write(data: ByteArray) = fromClient.send(data)
+            override suspend fun read(): ByteArray = fromServer.receive()
+        }
     }
 
+    @Test(timeout = 3000)
+    fun testBlocking() = runBlocking {
+        data class State(val a: String = "", val secret: String? = null, val b: String = "")
+
+        val client = Library.startClient(socket.mkClient(), State())
+        val server = Library.startClient(socket.mkServer(), State())
+
+        client.update { it.copy(secret = "X") }
+        client.update { it.copy(secret = "Y") }
+    }
 
     @Test(timeout = 5000)
-    fun testSendAndReceive() = runBlockingTest {
+    fun testSendAndReceive() = runBlocking {
         data class User(val a: String, val b: Int, val c: String?) : Serializable
         data class State(val users: Map<String, User?> = emptyMap())
 
-        val socket = object : Socket {
-            private val buffer = Channel<ByteArray>(1)
-            override suspend fun write(data: ByteArray) = buffer.send(data)
-            override suspend fun read(): ByteArray = buffer.receive()
-        }
+        val client = Library.startClient(socket.mkClient(), State())
+        val server = Library.startClient(socket.mkServer(), State())
 
-        val client = Library.startClient(socket, State())
-        val server = Library.startClient(socket, State())
-
-        repeat(1) {
+        repeat(10) {
             suspend fun assertSync(u1: Updater<State>, u2: Updater<State>) {
-                u1.update { db -> db.copy(users = mapOf("alex" to null)) }
+                val expected1 = mapOf(random.nextLong().toString() to null)
+                u1.update { db -> db.copy(users = expected1) }
 
-                val reqUsers = u2.read { db -> db to db.users}
+                val reqUsers = u2.read { db -> db to db.users }
 
-                assertEquals(mapOf("alex" to null), reqUsers)
+                assertEquals(expected1, reqUsers)
 
                 val expected =
                     reqUsers.mapValues { User(random.nextDouble().toString(), random.nextInt(), null) }
@@ -53,16 +67,16 @@ class LibraryTest {
             }
 
             assertSync(client, server)
-//            assertSync(server, client)
+            assertSync(server, client)
         }
     }
 
     @Test(timeout = 5000)
-    fun `test nullable`() = runBlockingTest {
+    fun `test nullable`() = runBlocking {
         data class State(val a: String = "", val secret: String? = null, val b: String = "")
 
-        val client = Library.startClient(socket, State())
-        val server = Library.startClient(socket, State())
+        val client = Library.startClient(socket.mkClient(), State())
+        val server = Library.startClient(socket.mkServer(), State())
 
         repeat(10) {
             suspend fun assertSync(u1: Updater<State>, u2: Updater<State>) {
@@ -81,11 +95,11 @@ class LibraryTest {
     }
 
     @Test(timeout = 5000)
-    fun test() = runBlockingTest {
+    fun test() = runBlocking {
         data class State(val a: String = "", val secret: String = "", val b: String = "")
 
-        val client = Library.startClient(socket, State())
-        val server = Library.startClient(socket, State())
+        val client = Library.startClient(socket.mkClient(), State())
+        val server = Library.startClient(socket.mkServer(), State())
 
         repeat(10) {
             suspend fun assertSync(u1: Updater<State>, u2: Updater<State>) {
