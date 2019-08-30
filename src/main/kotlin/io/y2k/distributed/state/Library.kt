@@ -29,7 +29,10 @@ object Library {
             override suspend fun <R> read(f: (T) -> Pair<T, R>): R {
                 val bytes = socket.read()
                 state = updateState(state, bytes)
-                val (_, r) = f(state)
+                val (newState, r) = f(state)
+
+                if (newState != state) update { newState }
+
                 return r
             }
         }
@@ -42,16 +45,16 @@ object Library {
 
         val changes =
             changedMethods
-                .map {
-                    val p = it.name.replace("get", "")
+                .map { method ->
+                    val p = method.name.replace("get", "")
                     val x = p[0].toLowerCase() + p.substring(1)
-                    Diff(x, serialize(it(newState)))
+                    Diff(x, serialize(method(newState)))
                 }
 
         return serialize(changes)
     }
 
-    private fun serialize(x: Any): ByteArray {
+    private fun serialize(x: Any?): ByteArray {
         val r = ByteArrayOutputStream()
         ObjectOutputStream(r).use { it.writeObject(x) }
         return r.toByteArray()
