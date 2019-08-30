@@ -14,4 +14,7 @@ dependencies {
 
     testImplementation 'org.jetbrains.kotlin:kotlin-test'
     testImplementation 'org.jetbrains.kotlin:kotlin-test-junit'
+
+    testImplementation group: 'com.squareup.okhttp3', name: 'okhttp', version: '4.1.0'
+    testImplementation 'org.java-websocket:Java-WebSocket:1.4.0'
 }

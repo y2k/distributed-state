@@ -16,7 +16,6 @@ interface Socket {
 
 interface Updater<T> {
     suspend fun update(f: (T) -> T)
-    suspend fun <R> read(f: (T) -> Pair<T, R>): R
 }
 
 object Library {
@@ -83,16 +82,6 @@ object Library {
 
             fun <R> changeState(f: LocalState<T>.() -> R): R =
                 synchronized(state_) { state_.f() }
-
-            override suspend fun <R> read(f: (T) -> Pair<T, R>): R {
-                val r = AtomicReference<R>()
-                update {
-                    val (x, y) = f(it)
-                    r.set(y)
-                    x
-                }
-                return r.get()
-            }
         }
 
     private suspend fun Socket.writeRemote(x: DiffMsg) = write(serialize(x))
@@ -118,8 +107,7 @@ object Library {
 
         val args = diffs
             .map { x ->
-                copy.parameters.first { it.name == x.method } to
-                    deserialize<Any>(x.content)
+                copy.parameters.first { it.name == x.method } to deserialize<Any>(x.content)
             }
             .plus(instanceParam to oldState)
             .toMap()
@@ -140,15 +128,20 @@ object Library {
         return s.use { ObjectInputStream(it).readObject() as T }
     }
 
-    class LocalState<T>(var state: T, var clock: Clock)
-    data class Clock(val local: Long, val remote: Long) : Serializable
-    sealed class DiffMsg : Serializable {
+    private class LocalState<T>(var state: T, var clock: Clock)
+    private data class Clock(val local: Long, val remote: Long) : Serializable
+    private class Diff(val method: String, val content: ByteArray) : Serializable
+    private sealed class DiffMsg : Serializable {
         class Update(val diff: List<Diff>, val clock: Clock) : DiffMsg()
         class Result(val clock: Clock, val success: Boolean) : DiffMsg()
     }
 
-    class Diff(val method: String, val content: ByteArray) : Serializable
+    private fun Clock.invert() = Clock(remote, local)
+    private fun Clock.inc() = Clock(remote + 1, local + 1)
 }
 
-private fun Library.Clock.invert() = Library.Clock(remote, local)
-private fun Library.Clock.inc() = Library.Clock(remote + 1, local + 1)
+suspend fun <T, R> Updater<T>.read(f: (T) -> Pair<T, R>): R {
+    val r = AtomicReference<R>()
+    update { val (x, y) = f(it);r.set(y);x }
+    return r.get()
+}
