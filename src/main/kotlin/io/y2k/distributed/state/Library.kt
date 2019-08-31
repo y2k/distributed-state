@@ -4,7 +4,10 @@ import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.*
+import java.util.concurrent.ThreadLocalRandom
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.reflect.full.instanceParameter
 import kotlin.reflect.full.memberFunctions
@@ -42,42 +45,50 @@ object Library {
                 }
             }
 
-            private suspend fun tryApplyUpdate(x: DiffMsg.Update) {
-                val x1 =
+            private suspend fun tryApplyUpdate(msg: DiffMsg.Update) {
+                val result =
                     changeState {
-                        if (x.clock == clock.invert()) {
-                            state = updateState(state, x.diff)
-                            clock = clock.inc()
-
+                        if (clock.local == msg.clock.remote) {
+                            state = updateState(state, msg.diff)
+                            clock = Clock(clock.local + 1, msg.clock.local)
                             DiffMsg.Result(clock, true)
                         } else {
                             DiffMsg.Result(clock, false)
                         }
                     }
-                socket.writeRemote(x1)
+                socket.writeRemote(result)
             }
 
+            private val lock = Mutex()
+            private val random = ThreadLocalRandom.current()
+
             override suspend fun update(f: (T) -> T) {
-                while (true) {
-                    val (changes, newState, c) = changeState {
-                        val newState = f(state)
-                        Triple(computeDelta(state, newState), newState, clock)
-                    }
-                    if (changes.isEmpty()) return
-                    socket.writeRemote(DiffMsg.Update(changes, c))
-
-                    val remote = resultChannel.receive()
-                    if (remote.success) {
-                        changeState {
-                            state = newState
-                            clock = remote.clock.invert()
+                var delayMs = random.nextDouble(25.0, 75.0)
+                while (true)
+                    lock.withLock {
+                        val (delta, newState, c) = changeState {
+                            val newState = f(state)
+                            val delta = computeDelta(state, newState)
+                            if (delta.isNotEmpty())
+                                clock = clock.incLocal()
+                            Triple(delta, newState, clock)
                         }
-                    }
-                    result2Channel.send(Unit)
+                        if (delta.isEmpty()) return
+                        socket.writeRemote(DiffMsg.Update(delta, c))
 
-                    if (remote.success) return
-                    delay(100)
-                }
+                        val remote = resultChannel.receive()
+                        changeState {
+                            if (remote.success)
+                                state = newState
+                            clock = clock.copy(remote = remote.clock.local)
+                        }
+                        result2Channel.send(Unit)
+
+                        if (remote.success) return
+
+                        delay(delayMs.toLong())
+                        delayMs *= random.nextDouble(1.5, 2.5)
+                    }
             }
 
             fun <R> changeState(f: LocalState<T>.() -> R): R =
@@ -136,8 +147,7 @@ object Library {
         class Result(val clock: Clock, val success: Boolean) : DiffMsg()
     }
 
-    private fun Clock.invert() = Clock(remote, local)
-    private fun Clock.inc() = Clock(remote + 1, local + 1)
+    private fun Clock.incLocal() = copy(local = local + 1)
 }
 
 suspend fun <T, R> Updater<T>.read(f: (T) -> Pair<T, R>): R {

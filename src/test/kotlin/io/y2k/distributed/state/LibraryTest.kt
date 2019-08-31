@@ -9,7 +9,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import java.io.Serializable
 import java.util.concurrent.ThreadLocalRandom
-import kotlin.test.Ignore
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -18,28 +17,30 @@ class LibraryTest {
     private val random = ThreadLocalRandom.current()
     private val socket = SocketFactory()
 
-    @Ignore
-    @Test(timeout = 5000)
+    @Test(timeout = 10_000)
     fun `test race conditions`() = runBlocking {
         data class State(val a: Int = 0, val b: Int = 0) : Serializable
         initEnvironment(State()) { local, remote ->
-            val iterations = 100
+            val iterations = 50
             local.update { State(0, 0) }
 
             fun increaseAsync(u: Updater<State>, f: (State) -> State) = async {
                 repeat(iterations) {
                     u.update { f(it) }
-                    delay(random.nextLong(0, 20))
+                    delay(random.nextLong(0, 10))
                 }
             }
 
             listOf(
                 increaseAsync(local) { it.copy(a = it.a + 1) },
-                increaseAsync(remote) { it.copy(b = it.b + 1) },
                 increaseAsync(local) { it.copy(a = it.a + 1, b = it.b + 1) },
+                increaseAsync(remote) { it.copy(b = it.b + 1) },
                 increaseAsync(remote) { it.copy(a = it.a + 1, b = it.b + 1) }
             ).awaitAll()
 
+            delay(500)
+
+            assertEquals(local.read { it to it }, remote.read { it to it })
             assertEquals(State(3 * iterations, 3 * iterations), local.read { it to it })
             assertEquals(State(3 * iterations, 3 * iterations), remote.read { it to it })
         }
@@ -104,7 +105,7 @@ class LibraryTest {
         val server = Library.startClient(socket.mkServer(), initState)
         val client = Library.startClient(socket.mkClient(), initState)
 
-        repeat(10) {
+        repeat(2) {
             suspend fun assertSync(u1: Updater<State>, u2: Updater<State>) {
                 f(u1, u2)
             }
