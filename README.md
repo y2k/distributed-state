@@ -1,4 +1,4 @@
-#### Dependency
+#### Maven artifact
 
 [![](https://jitpack.io/v/y2k/distributed-state.svg)](https://jitpack.io/#y2k/distributed-state)
 
