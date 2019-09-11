@@ -1,5 +1,6 @@
 plugins {
     id 'org.jetbrains.kotlin.jvm' version '1.3.50'
+    id "com.github.ben-manes.versions" version "0.25.0"
 }
 
 repositories {
@@ -8,13 +9,13 @@ repositories {
 
 dependencies {
     implementation 'org.jetbrains.kotlin:kotlin-stdlib-jdk8'
-    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.3.0'
-    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.3.0'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.3.1'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.3.1'
     implementation 'org.jetbrains.kotlin:kotlin-reflect'
 
     testImplementation 'org.jetbrains.kotlin:kotlin-test'
     testImplementation 'org.jetbrains.kotlin:kotlin-test-junit'
 
-    testImplementation group: 'com.squareup.okhttp3', name: 'okhttp', version: '4.1.0'
+    testImplementation group: 'com.squareup.okhttp3', name: 'okhttp', version: '4.2.0'
     testImplementation 'org.java-websocket:Java-WebSocket:1.4.0'
 }
