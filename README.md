@@ -1,3 +1,7 @@
+#### Dependency
+
+[![](https://jitpack.io/v/y2k/distributed-state.svg)](https://jitpack.io/#y2k/distributed-state)
+
 ### Examples
 
 #### Client
